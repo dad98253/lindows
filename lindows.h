@@ -8,7 +8,7 @@
 #ifndef LINDOWS_H_
 #define LINDOWS_H_
 
-#include "WINDEF.H"
+#include "windef.h"
 #include <stdarg.h>
 #include <sys/types.h>
 
