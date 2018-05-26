@@ -15,7 +15,7 @@
 #pragma comment( user, "File: " __FILE__ ". Compiled on " __DATE__ " at " __TIME__ ".  Last modified on " __TIMESTAMP__ )
 #endif
 
-#include "StdAfx.h"
+#include "lindows_StdAfx.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -36,18 +36,25 @@
 #include <syslog.h>
 #include <pwd.h>
 
-#include "passwin.h"
-#include "options.h"
-#include "globals.h"
-#include "debugflags.h"
-#include "resource.h"
+//#include "passwin.h"
+//#include "options.h"
+//#include "globals.h"
+//#include "debugflags.h"
+//#include "resource.h"
+//#include "extwindata.h"
+//#include "Resources.h"
+#include "debug.h"
+#include "msgbox.h"
 #include "extwindata.h"
-#include "Resources.h"
+#include "stringresources.h"
 #ifdef NOECBM2X
 #include "WMessages.h"
 #include "ecbm2.h"
 #endif
 
+#define TRACESTATUS		1
+#define TRACEGETFULLPATHNAME	TRACESTATUS
+#define DEBUGSETTINGSINPUT		TRACESTATUS
 
 
 #define MIN(x, y) (((x) > (y)) ? (y) : (x))
@@ -55,6 +62,7 @@
 #define FLAGSET(x) x ? "Set" : "Not Set"    /* return a const char string of either "Set" or "Not Set" based on the bool argument x    */
 
 extern bool FileExists(char *szFileName);
+extern int CompareStringResource(const void *m1, const void *m2);
 
 int WINAPI LoadString(
   _In_opt_ HINSTANCE hInstance,
@@ -63,12 +71,12 @@ int WINAPI LoadString(
   _In_     int       nBufferMax
 )
 {
-	struct WindowsStringData *res;
+	WindowsStringDataTYPE *res;
 	if (nBufferMax == 0){
 		printf("LoadString called with nBufferMax == 0, this feature is not available in this version of LoadString\n");
 		return (0);
 	}
-      res = (WindowsStringDataTYPE *)bsearch (&uID, StringResourceData, numStringItems, sizeof(WindowsStringData), CompareStringResource );
+      res = (WindowsStringDataTYPE *)bsearch (&uID, StringResourceData, numStringItems, sizeof(WindowsStringDataTYPE), CompareStringResource );
 //    res = (WindowsStringDataTYPE *)bsearchx(&uID, StringResourceData, numStringItems, sizeof(WindowsStringData), CompareStringResourcex);
     if (res == NULL) {
         printf("LoadString called with uID == %i, this element could not be found in the Windows string resource data\n", uID);
@@ -80,7 +88,7 @@ int WINAPI LoadString(
         int termloc = MIN(numChar2Copy,nBufferMax-1);
         lpBuffer[termloc] = '\000';
 #ifdef DEBUGLOADSTRING
-    	dfprintf(fp9,"LoadString returned #%i as \"%s\"\n", res->id, lpBuffer);
+    	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"LoadString returned #%i as \"%s\"\n", res->id, lpBuffer);
 #endif
     }
 	return (strlen(lpBuffer));
@@ -91,8 +99,8 @@ HMODULE WINAPI GetModuleHandle(
 )
 {
 #ifdef DEBUGGETMODULEHANDLE
-	if ( lpModuleName == NULL ) dfprintf(fp9,"GetModuleHandle called with NULL argument, returning 1\n");
-	if ( lpModuleName != NULL ) dfprintf(fp9,"GetModuleHandle called with (%s) argument, returning NULL\n",lpModuleName);
+	if ( lpModuleName == NULL ) dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetModuleHandle called with NULL argument, returning 1\n");
+	if ( lpModuleName != NULL ) dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetModuleHandle called with (%s) argument, returning NULL\n",lpModuleName);
 #endif
 	if ( lpModuleName == NULL ) return (1);
 	return (JKNULL);
@@ -110,7 +118,7 @@ DWORD WINAPI GetFullPathName(
 	ptr = realpath(lpFileName, NULL);
 	if ( ptr == NULL ) {
 #ifdef DEBUG
-		dfprintf(fp9,"GetFullPathName \33[1;32mFAILED\33[0m for \"%s\", errno = %u\n",lpFileName,errno);
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetFullPathName \33[1;32mFAILED\33[0m for \"%s\", errno = %u\n",lpFileName,errno);
 #endif
 		return(0);
 	}
@@ -127,17 +135,25 @@ DWORD WINAPI GetFullPathName(
 	szTemp = strrchr(lpBuffer, '/') + 1;
 //	if ( **lpFilePart == JKNULL ) {
 //#ifdef DEBUG
-//	dfprintf(fp9,"**lpFilePart == NULL in GetFullPathName\n");
+//	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"**lpFilePart == NULL in GetFullPathName\n");
 //#endif
 //	}
 //	*lpFilePart = szTemp;   //  for some reasone, this fails... possibly something wrong with the argument in the calling routine???
 
 #ifdef DEBUG
-	dfprintf(fp9,"GetFullPathName for \"%s\' is \"%s\"\n",szTemp,lpBuffer);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetFullPathName for \"%s\' is \"%s\"\n",szTemp,lpBuffer);
 #endif
 	free(ptr);
 	return (strlen(lpBuffer));
 }
+
+// global variables used in the following Resource related routines :
+char ** tempIntResource = NULL;
+char ** ResourceName = NULL;
+char ** ResourceValue = NULL;
+char ** ResourceType = NULL;
+int NumTempIntResources = 0;
+int NumResources = 0;
 
 LPTSTR MAKEINTRESOURCE(
    WORD wInteger
@@ -147,19 +163,19 @@ LPTSTR MAKEINTRESOURCE(
 
 	tempIntResource = (char**)realloc(tempIntResource,sizeof(char*)*(NumTempIntResources+2));
 #ifdef DEBUGMAKEINTRESOURCE
-	dfprintf(fp9,"MAKEINTRESOURCE reallocated %i bytes for tempIntResource starting at (0x%llx)\n",(int)_msize(tempIntResource),(long long unsigned int)tempIntResource);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"MAKEINTRESOURCE reallocated %i bytes for tempIntResource starting at (0x%llx)\n",(int)_msize(tempIntResource),(long long unsigned int)tempIntResource);
 #endif
 	if (tempIntResource == NULL) {
 #ifdef DEBUGMAKEINTRESOURCE
-	dfprintf(fp9,"MAKEINTRESOURCE = NULL, unable to allocate space for scratch resource, requested value = %i\n",wInteger);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"MAKEINTRESOURCE = NULL, unable to allocate space for scratch resource, requested value = %i\n",wInteger);
 #endif
 		return (NULL);
 	}
 	tempIntResource[NumTempIntResources] = NULL;
 	tempIntResource[NumTempIntResources] = (char*)malloc(16);
 #ifdef DEBUGMAKEINTRESOURCE
-	if (tempIntResource[NumTempIntResources] == NULL ) dfprintf(fp9,"MAKEINTRESOURCE = NULL, requested value = %i\n",wInteger);
-	if (tempIntResource[NumTempIntResources] != NULL ) dfprintf(fp9,"MAKEINTRESOURCE created scratch resource %i for requested value = %i of length %i at (0x%llx)\n",NumTempIntResources,wInteger,(int)_msize(tempIntResource[NumTempIntResources]),(long long unsigned int)tempIntResource[NumTempIntResources]);
+	if (tempIntResource[NumTempIntResources] == NULL ) dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"MAKEINTRESOURCE = NULL, requested value = %i\n",wInteger);
+	if (tempIntResource[NumTempIntResources] != NULL ) dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"MAKEINTRESOURCE created scratch resource %i for requested value = %i of length %i at (0x%llx)\n",NumTempIntResources,wInteger,(int)_msize(tempIntResource[NumTempIntResources]),(long long unsigned int)tempIntResource[NumTempIntResources]);
 #endif
 	if (tempIntResource[NumTempIntResources] != NULL ) sprintf(tempIntResource[NumTempIntResources],"%i",wInteger);
 	return (tempIntResource[NumTempIntResources]);
@@ -173,25 +189,25 @@ HRSRC WINAPI FindResource(
 {
 	if (strncmp(lpName,"112",3) == 0 && strncmp(lpType,"10",2) == 0) {
 #ifdef DEBUGFINDRESOURCE
-		dfprintf(fp9,"FindResource found WM_MESS resource\n");
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"FindResource found WM_MESS resource\n");
 #endif
 		return (112);
 	}
 	if (strncmp(lpName,"110",3) == 0 && strncmp(lpType,"10",2) == 0) {
 #ifdef DEBUG
-		dfprintf(fp9,"FindResource found ECB_F2 resource\n");
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"FindResource found ECB_F2 resource\n");
 #endif
 		return (110);
 	}
 	if (strncmp(lpName,"18727",3) == 0 && strncmp(lpType,"TEXTFILE",8) == 0) {
 #ifdef DEBUG
-		dfprintf(fp9,"FindResource found IDR_TEXTFILE2 resource\n");
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"FindResource found IDR_TEXTFILE2 resource\n");
 #endif
 		return (18727);
 	}
 	if (hModule != 1 || NumResources == 0) {
 #ifdef DEBUG
-		dfprintf(fp9,"FindResource = \33[1;32mNULL\33[0m\n");
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"FindResource = \33[1;32mNULL\33[0m\n");
 #endif
 		return (JKNULL);
 	}
@@ -212,7 +228,7 @@ HGLOBAL WINAPI LoadResource(
 {
 	if (hModule != JKNULL) {
 #ifdef DEBUG
-		dfprintf(fp9,"LoadResource called with non-NULL module handle... this version can only process null as first argument\n");
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"LoadResource called with non-NULL module handle... this version can only process null as first argument\n");
 #endif
 		return (0);
 	}
@@ -232,12 +248,12 @@ LPVOID WINAPI LockResource(
 #endif
 	if (hResData == 18727) {
 #ifdef DEBUG
-		dfprintf(fp9,"LockResource failed for hResData = %i.. the TEXTFILE is not implemented, yet\n" ,hResData);
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"LockResource failed for hResData = %i.. the TEXTFILE is not implemented, yet\n" ,hResData);
 #endif
 		return (NULL);
 	}
 #ifdef DEBUG
-	dfprintf(fp9,"LockResource failed for hResData = %i\n" ,hResData);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"LockResource failed for hResData = %i\n" ,hResData);
 #endif
 	return (NULL);
 }
@@ -249,7 +265,7 @@ DWORD WINAPI SizeofResource(
 {
 	if (hModule != JKNULL && hModule != 1 ) {
 #ifdef DEBUG
-		dfprintf(fp9,"SizeofResource called with module handle of %u, this version can only process null or 1 as first argument\n",hModule);
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SizeofResource called with module handle of %u, this version can only process null or 1 as first argument\n",hModule);
 #endif
 		return (0);
 	}
@@ -259,13 +275,13 @@ DWORD WINAPI SizeofResource(
 #endif
 	if (hResInfo == 18727) {
 #ifdef DEBUG
-		dfprintf(fp9,"SizeofResource called for TEXTFILE resource... this version cannot process TEXTFILE, yet...\n");
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SizeofResource called for TEXTFILE resource... this version cannot process TEXTFILE, yet...\n");
 #endif
 		return (0);
 	}
 
 #ifdef DEBUG
-	dfprintf(fp9,"SizeofResource = 0\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SizeofResource = 0\n");
 #endif
 	return (0);
 }
@@ -278,13 +294,13 @@ int WINAPI MessageBox(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"MessageBox = %s\n",lpText);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"MessageBox = %s\n",lpText);
 #endif
 	return (0);
 }
 
 
-extern char szProgFilename[MAX_PATH + 1];
+extern char *szProgFilename;
 
 DWORD WINAPI GetModuleFileName(
    HMODULE hModule,
@@ -294,7 +310,7 @@ DWORD WINAPI GetModuleFileName(
 {
 	strcpy(lpFilename,szProgFilename);
 #ifdef DEBUG
-	dfprintf(fp9,"GetModuleFileName = %s\n",lpFilename);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetModuleFileName = %s\n",lpFilename);
 #endif
 	return (strlen(lpFilename));
 }
@@ -302,7 +318,7 @@ DWORD WINAPI GetModuleFileName(
 DWORD WINAPI GetLastError(void)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetLastError = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetLastError = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -315,7 +331,7 @@ BOOL WINAPI GetFileVersionInfo(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetFileVersionInfo = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetFileVersionInfo = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -337,7 +353,7 @@ BOOL WINAPI VerQueryValue(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"VerQueryValue = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"VerQueryValue = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -347,7 +363,7 @@ void WINAPI GetSystemInfo(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetSystemInfo = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetSystemInfo = \33[1;32mNULL\33[0m\n");
 #endif
 	return;
 }
@@ -355,7 +371,7 @@ void WINAPI GetSystemInfo(
 DWORD WINAPI GetVersion(void)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetVersion = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetVersion = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -365,7 +381,7 @@ int WINAPI GetSystemMetrics(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetSystemMetrics = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetSystemMetrics = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -379,7 +395,7 @@ BOOL WINAPI WriteFile(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"WriteFile = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"WriteFile = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -389,7 +405,7 @@ void WINAPI OutputDebugString(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"OutputDebugString = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"OutputDebugString = \33[1;32mNULL\33[0m\n");
 #endif
 	return;
 }
@@ -399,7 +415,7 @@ HANDLE WINAPI GetStdHandle(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetStdHandle = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetStdHandle = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -413,11 +429,15 @@ DWORD WINAPI GetProfileString(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetProfileString = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetProfileString = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
 
+// the following global variables ar used by the windows file routines
+#define NUMCFHANDLES    20
+int numCFHandles = 0;
+char *CFileHandles[NUMCFHANDLES] = { NULL };
 
 HANDLE WINAPI CreateFile(
        LPCTSTR               lpFileName,
@@ -445,14 +465,14 @@ HANDLE WINAPI CreateFile(
 	CFileHandles[newindex] = (char *)malloc(strlen(lpFileName)+1);
 	strcpy(CFileHandles[newindex],lpFileName);
 #ifdef DEBUG
-	dfprintf(fp9,"CreateFile handle for %s = %i\n",lpFileName,newindex+1);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CreateFile handle for %s = %i\n",lpFileName,newindex+1);
 #endif
 
 	if ( dwDesiredAccess == GENERIC_READ && dwCreationDisposition != OPEN_EXISTING ) return (INVALID_HANDLE_VALUE);
 	if ( dwDesiredAccess == GENERIC_WRITE && dwCreationDisposition != CREATE_NEW && dwCreationDisposition != CREATE_ALWAYS ) return (INVALID_HANDLE_VALUE);
 	if ( dwDesiredAccess == (GENERIC_READ|GENERIC_WRITE) && dwCreationDisposition != OPEN_EXISTING ) {
 #ifdef DEBUG
-	dfprintf(fp9,"CreateFile COM port option is not available at this time... need more code to finish this...\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CreateFile COM port option is not available at this time... need more code to finish this...\n");
 #endif
 		return (INVALID_HANDLE_VALUE);
 	}
@@ -484,7 +504,7 @@ BOOL WINAPI CloseHandle(
 		free(CFileHandles[hObject-1]);
 		CFileHandles[hObject-1] = NULL;
 #ifdef DEBUG
-		dfprintf(fp9,"Closed Handle %li\n",hObject);
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"Closed Handle %li\n",hObject);
 #endif
 		return (TRUE);
 	}
@@ -520,9 +540,7 @@ void TimetToFileTime( time_t t, LPFILETIME pft )
 	char s[41];
 	ptm = gmtime ( &t );
 	strftime(s, sizeof(s), "%D %T",ptm);
-	if (debugflag & DEBUGSETTINGSINPUT) {
-		dfprintf(fp9,"in TimetToFileTime, time_t = %s\n",s);
-	}
+	dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"in TimetToFileTime, time_t = %s\n",s);
 #endif
     LONGLONG ll = Int32x32To64(t, 10000000) + 116444736000000000LL;
     pft->dwLowDateTime = (unsigned int) ll;
@@ -530,9 +548,7 @@ void TimetToFileTime( time_t t, LPFILETIME pft )
 #ifdef DEBUG
     LONGLONG ll2 = ( ( ((long long int)pft->dwHighDateTime) << 32 ) + ((long long int)pft->dwLowDateTime) - 116444736000000000LL ) / 10000000LL;
     time_t t2 = (time_t)ll2;
-	if (debugflag & DEBUGSETTINGSINPUT) {
-		dfprintf(fp9,"in TimetToFileTime, t = %lu, t2 = %lu, FileTime = %lu,%lu\n",t,t2,pft->dwHighDateTime,pft->dwLowDateTime);
-	}
+	dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"in TimetToFileTime, t = %lu, t2 = %lu, FileTime = %lu,%lu\n",t,t2,pft->dwHighDateTime,pft->dwLowDateTime);
 #endif
     return;
 }
@@ -542,9 +558,7 @@ void FileTimeToTimet( LPFILETIME pft , time_t *t )
     LONGLONG ll = ( ( ((long long int)pft->dwHighDateTime) << 32 ) + ((long long int)pft->dwLowDateTime) - 116444736000000000LL ) / 10000000LL;
     *t = (time_t)ll;
 #ifdef DEBUG
-	if (debugflag & DEBUGSETTINGSINPUT) {
-		dfprintf(fp9,"in FileTimeToTimet, t = %lu, FileTime = %lu,%lu\n",t,pft->dwHighDateTime,pft->dwLowDateTime);
-	}
+	dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"in FileTimeToTimet, t = %lu, FileTime = %lu,%lu\n",t,pft->dwHighDateTime,pft->dwLowDateTime);
 #endif
 	return;
 }
@@ -578,49 +592,41 @@ BOOL WINAPI GetFileTime(
     }
 
 #ifdef DEBUG
-	if (debugflag & DEBUGSETTINGSINPUT) {
-		dfprintf(fp9,"\33[1;35mCreation time\33[0m:\n");
-	}
+	dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"\33[1;35mCreation time\33[0m:\n");
 #endif
    TimetToFileTime (birthtime(sb),lpCreationTime);
 #ifdef DEBUG
-	if (debugflag & DEBUGSETTINGSINPUT) {
-		dfprintf(fp9,"\33[1;35mLast Access time\33[0m:\n");
-	}
+	dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"\33[1;35mLast Access time\33[0m:\n");
 #endif
    TimetToFileTime (sb.st_atime,lpLastAccessTime);
 #ifdef DEBUG
-	if (debugflag & DEBUGSETTINGSINPUT) {
-		dfprintf(fp9,"\33[1;35mLast Modification time\33[0m:\n");
-	}
+	dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"\33[1;35mLast Modification time\33[0m:\n");
 #endif
    TimetToFileTime (sb.st_mtime,lpLastWriteTime);
 
 #ifdef DEBUG
-	if (debugflag & DEBUGSETTINGSINPUT) {
-		dfprintf(fp9,"\33[1;35mGetFileTime\33[0m stat of \'%s\':\nFile type:                ",CFileHandles[hFile-1]);
+		dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"\33[1;35mGetFileTime\33[0m stat of \'%s\':\nFile type:                ",CFileHandles[hFile-1]);
 
 		switch (sb.st_mode & S_IFMT) {
-			case S_IFBLK:  dfprintf(fp9,"block device\n");            break;
-			case S_IFCHR:  dfprintf(fp9,"character device\n");        break;
-			case S_IFDIR:  dfprintf(fp9,"directory\n");               break;
-			case S_IFIFO:  dfprintf(fp9,"FIFO/pipe\n");               break;
-			case S_IFLNK:  dfprintf(fp9,"symlink\n");                 break;
-			case S_IFREG:  dfprintf(fp9,"regular file\n");            break;
-			case S_IFSOCK: dfprintf(fp9,"socket\n");                  break;
-			default:       dfprintf(fp9,"unknown\n");                 break;
+			case S_IFBLK:  dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"block device\n");            break;
+			case S_IFCHR:  dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"character device\n");        break;
+			case S_IFDIR:  dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"directory\n");               break;
+			case S_IFIFO:  dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"FIFO/pipe\n");               break;
+			case S_IFLNK:  dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"symlink\n");                 break;
+			case S_IFREG:  dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"regular file\n");            break;
+			case S_IFSOCK: dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"socket\n");                  break;
+			default:       dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"unknown\n");                 break;
 		}
-		dfprintf(fp9,"I-node number:            %ld\n", (long) sb.st_ino);
-		dfprintf(fp9,"Mode:                     %lo (octal)\n",(unsigned long) sb.st_mode);
-		dfprintf(fp9,"Link count:               %ld\n", (long) sb.st_nlink);
-		dfprintf(fp9,"Ownership:                UID=%ld   GID=%ld\n",(long) sb.st_uid, (long) sb.st_gid);
-		dfprintf(fp9,"Preferred I/O block size: %ld bytes\n",(long) sb.st_blksize);
-		dfprintf(fp9,"File size:                %lld bytes\n",(long long) sb.st_size);
-		dfprintf(fp9,"Blocks allocated:         %lld\n",(long long) sb.st_blocks);
-		dfprintf(fp9,"Last status change:       %s", ctime(&sb.st_ctime));
-		dfprintf(fp9,"Last file access:         %s", ctime(&sb.st_atime));
-		dfprintf(fp9,"Last file modification:   %s", ctime(&sb.st_mtime));
-	}
+		dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"I-node number:            %ld\n", (long) sb.st_ino);
+		dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"Mode:                     %lo (octal)\n",(unsigned long) sb.st_mode);
+		dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"Link count:               %ld\n", (long) sb.st_nlink);
+		dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"Ownership:                UID=%ld   GID=%ld\n",(long) sb.st_uid, (long) sb.st_gid);
+		dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"Preferred I/O block size: %ld bytes\n",(long) sb.st_blksize);
+		dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"File size:                %lld bytes\n",(long long) sb.st_size);
+		dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"Blocks allocated:         %lld\n",(long long) sb.st_blocks);
+		dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"Last status change:       %s", ctime(&sb.st_ctime));
+		dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"Last file access:         %s", ctime(&sb.st_atime));
+		dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"Last file modification:   %s", ctime(&sb.st_mtime));
 #endif
 	return (TRUE);
 }
@@ -633,7 +639,7 @@ BOOL WINAPI SetupComm(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetupComm = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetupComm = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -644,7 +650,7 @@ BOOL WINAPI GetCommState(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetCommState = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetCommState = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -655,7 +661,7 @@ BOOL WINAPI SetCommState(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetCommState = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetCommState = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -665,7 +671,7 @@ BOOL WINAPI FlushFileBuffers(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"FlushFileBuffers = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"FlushFileBuffers = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -673,7 +679,7 @@ BOOL WINAPI FlushFileBuffers(
 BOOL WINAPI FreeConsole(void)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"FreeConsole = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"FreeConsole = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -684,7 +690,7 @@ BOOL WINAPI GetComputerName(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetComputerName = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetComputerName = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -701,7 +707,7 @@ DWORD WINAPI FormatMessage(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"FormatMessage = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"FormatMessage = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -711,7 +717,7 @@ void *memblock
 )
 {
 #ifdef DEBUGMSIZE
-	dfprintf(fp9,"msize = %lu\n", malloc_usable_size (memblock));
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"msize = %lu\n", malloc_usable_size (memblock));
 #endif
 	return (malloc_usable_size (memblock));
 }
@@ -719,7 +725,7 @@ void *memblock
 DWORD WINAPI CommDlgExtendedError(void)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"CommDlgExtendedError = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CommDlgExtendedError = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -729,7 +735,7 @@ BOOL WINAPI MessageBeep(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"MessageBeep = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"MessageBeep = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -737,7 +743,7 @@ BOOL WINAPI MessageBeep(
 HWND WINAPI GetFocus(void)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetFocus = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetFocus = \33[1;32mNULL\33[0m\n");
 #endif
 	return (JKNULL);
 }
@@ -747,7 +753,7 @@ void WINAPI FatalExit(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"FatalExit = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"FatalExit = \33[1;32mNULL\33[0m\n");
 #endif
 	return;
 }
@@ -757,14 +763,14 @@ BOOL WINAPI DestroyWindow(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"DestroyWindow = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"DestroyWindow = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
 int PASCAL FAR WSAStartup(WORD wVersionRequired, LPWSADATA lpWSAData)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"WSAStartup = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"WSAStartup = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -772,7 +778,7 @@ int PASCAL FAR WSAStartup(WORD wVersionRequired, LPWSADATA lpWSAData)
 int PASCAL FAR WSAGetLastError(void)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"WSAGetLastError = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"WSAGetLastError = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -780,7 +786,7 @@ int PASCAL FAR WSAGetLastError(void)
 int PASCAL FAR WSACleanup(void)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"WSACleanup = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"WSACleanup = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -790,7 +796,7 @@ int PASCAL FAR WSACleanup(void)
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"gethostbyname = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"gethostbyname = \33[1;32mNULL\33[0m\n");
 #endif
 	return (NULL);
 }
@@ -800,7 +806,7 @@ unsigned long inet_addr(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"inet_addr = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"inet_addr = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -810,7 +816,7 @@ int closesocket(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"closesocket = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"closesocket = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -824,7 +830,7 @@ HANDLE WINAPI CreateConsoleScreenBuffer(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"CreateConsoleScreenBuffer = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CreateConsoleScreenBuffer = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -838,7 +844,7 @@ BOOL WINAPI ScrollConsoleScreenBuffer(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"ScrollConsoleScreenBuffer = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"ScrollConsoleScreenBuffer = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -846,7 +852,7 @@ BOOL WINAPI ScrollConsoleScreenBuffer(
 BOOL WINAPI AllocConsole(void)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"AllocConsole = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"AllocConsole = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -857,7 +863,7 @@ BOOL WINAPI GetConsoleScreenBufferInfo(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetConsoleScreenBufferInfo = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetConsoleScreenBufferInfo = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -868,7 +874,7 @@ BOOL WINAPI SetConsoleTextAttribute(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetConsoleTextAttribute = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetConsoleTextAttribute = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -879,7 +885,7 @@ BOOL WINAPI SetConsoleScreenBufferSize(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetConsoleScreenBufferSize = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetConsoleScreenBufferSize = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -890,7 +896,7 @@ BOOL WINAPI GetConsoleMode(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetConsoleMode = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetConsoleMode = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -901,7 +907,7 @@ BOOL WINAPI SetConsoleMode(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetConsoleMode = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetConsoleMode = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -912,7 +918,7 @@ BOOL WINAPI SetConsoleCursorPosition(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetConsoleCursorPosition = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetConsoleCursorPosition = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -922,7 +928,7 @@ HLOCAL WINAPI LocalFree(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"LocalFree = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"LocalFree = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -934,7 +940,7 @@ LPWSTR* CommandLineToArgvW(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"CommandLineToArgvW = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CommandLineToArgvW = \33[1;32mNULL\33[0m\n");
 #endif
 	return (NULL);
 }
@@ -942,7 +948,7 @@ LPWSTR* CommandLineToArgvW(
 LPWSTR GetCommandLineW(void)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetCommandLineW = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetCommandLineW = \33[1;32mNULL\33[0m\n");
 #endif
 	return (NULL);
 }
@@ -953,7 +959,7 @@ BOOL WINAPI DeleteFile(
 {
 	int iret = unlink(lpFileName);
 #ifdef DEBUG
-	dfprintf(fp9,"in DeleteFile unlink(%s) returns %i\n",lpFileName,iret);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"in DeleteFile unlink(%s) returns %i\n",lpFileName,iret);
 #endif
 	if ( iret == 0 ) {
 		return(TRUE);
@@ -962,6 +968,26 @@ BOOL WINAPI DeleteFile(
 	}
 }
 
+#define INVALID_FILE_ATTRIBUTES ((DWORD)-1)
+// ... (from GetPASSWDfileName)
+
+bool FileExistsJK2(char *szFileName)
+{
+  DWORD ftyp = GetFileAttributes(szFileName);
+  if (ftyp == INVALID_FILE_ATTRIBUTES)
+    return false;  //something is wrong with your path!
+
+  if (ftyp & FILE_ATTRIBUTE_DIRECTORY)
+    return false;   // this is a directory!
+
+  return true;    // this is not a directory!
+
+//  DWORD dwAttrib = GetFileAttributes(szFileName);
+//  return (dwAttrib != INVALID_FILE_ATTRIBUTES &&
+//         !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
+}
+
+
 BOOL WINAPI CopyFile(
   _In_ LPCTSTR lpExistingFileName,
   _In_ LPCTSTR lpNewFileName,
@@ -969,7 +995,7 @@ BOOL WINAPI CopyFile(
 )
 {
 	if ( bFailIfExists ) {
-		if ( FileExists( (char*)lpNewFileName ) ) return (FALSE);
+		if ( FileExistsJK2( (char*)lpNewFileName ) ) return (FALSE);
 	}
 	int fpin = open(lpExistingFileName,O_RDONLY,S_IREAD);
 	if ( fpin == -1 ) {
@@ -982,20 +1008,20 @@ BOOL WINAPI CopyFile(
 		return (FALSE);
 	}
 #ifdef DEBUG
-	dfprintf(fp9,"copying %s to %s :",lpExistingFileName,lpNewFileName);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"copying %s to %s :",lpExistingFileName,lpNewFileName);
 #endif
 	while ( sendfile(fpout, fpin, 0, 32768) == 32768 ) {
 #ifdef DEBUG
-	dfprintf(fp9,"*");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"*");
 #endif
 	}
 #ifdef DEBUG
-	dfprintf(fp9,"\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"\n");
 #endif
 	close(fpin);
 	close(fpout);
 #ifdef DEBUG
-	dfprintf(fp9,"CopyFile done\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CopyFile done\n");
 #endif
 	return (TRUE);
 }
@@ -1015,18 +1041,18 @@ DWORD WINAPI GetFileAttributes(
 	 rval = access(lpFileName, F_OK);
 	 if (rval == 0) {
 #ifdef DEBUGGETFILEATTRIBUTES
-	  dfprintf(fp9,"%s exists\n", lpFileName);
+	  dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"%s exists\n", lpFileName);
 #endif
 	  returnVal = 1;}
 	 else {
 	  if (errno == ENOENT) {
 #ifdef DEBUG
-		  dfprintf(fp9,"%s does not exist\n", lpFileName);
+		  dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"%s does not exist\n", lpFileName);
 #endif
 		  returnVal = -1;}
 	  if (errno == EACCES) {
 #ifdef DEBUG
-		  dfprintf(fp9,"%s is not accessible\n", lpFileName);
+		  dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"%s is not accessible\n", lpFileName);
 #endif
 		  returnVal = -1;}
 	 }
@@ -1035,12 +1061,12 @@ DWORD WINAPI GetFileAttributes(
 	 rval = access(lpFileName, R_OK);
 	 if (rval == 0) {
 #ifdef DEBUGGETFILEATTRIBUTES
-		 dfprintf(fp9,"%s is readable\n", lpFileName);
+		 dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"%s is readable\n", lpFileName);
 #endif
 		 r=1;
 	 } else {
 #ifdef DEBUGGETFILEATTRIBUTES
-		 dfprintf(fp9,"%s is not readable (access denied)\n", lpFileName);
+		 dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"%s is not readable (access denied)\n", lpFileName);
 #endif
 		 r=0;
 	 }
@@ -1049,44 +1075,44 @@ DWORD WINAPI GetFileAttributes(
 	 rval = access(lpFileName, W_OK);
 	 if (rval == 0) {
 #ifdef DEBUGGETFILEATTRIBUTES
-		 dfprintf(fp9,"%s is writable\n", lpFileName);
+		 dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"%s is writable\n", lpFileName);
 #endif
 		 w=1;
 	 }
 #ifdef DEBUG
 	 else if (errno == EACCES) {
-		 dfprintf(fp9,"%s is not writable (access denied)\n", lpFileName);
+		 dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"%s is not writable (access denied)\n", lpFileName);
 	 }
 	 else if (errno == EROFS) {
-		 dfprintf(fp9,"%s is not writable (read-only filesystem)\n", lpFileName);
+		 dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"%s is not writable (read-only filesystem)\n", lpFileName);
 	 }
 #endif
 //#ifdef DEBUGGETFILEATTRIBUTES
 // check for directory:
 	 if (stat(lpFileName, &sb) == -1) {
 #ifdef DEBUG
-		 dfprintf(fp9,"unable to stat file %s in GetFileAttributes\n",lpFileName);
+		 dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"unable to stat file %s in GetFileAttributes\n",lpFileName);
 #endif
 		 d = 0;
 	 }
 	 if ( (sb.st_mode & S_IFMT) == S_IFDIR ) d = 1;
 #ifdef DEBUGGETFILEATTRIBUTES
-	dfprintf(fp9,"File type:                ");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"File type:                ");
 
 	   switch (sb.st_mode & S_IFMT) {
-	    case S_IFBLK:  dfprintf(fp9,"block device\n");            break;
-	    case S_IFCHR:  dfprintf(fp9,"character device\n");        break;
-	    case S_IFDIR:  dfprintf(fp9,"directory\n");				  break;
-	    case S_IFIFO:  dfprintf(fp9,"FIFO/pipe\n");               break;
-	    case S_IFLNK:  dfprintf(fp9,"symlink\n");                 break;
-	    case S_IFREG:  dfprintf(fp9,"regular file\n");            break;
-	    case S_IFSOCK: dfprintf(fp9,"socket\n");                  break;
-	    default:       dfprintf(fp9,"unknown?\n");                break;
+	    case S_IFBLK:  dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"block device\n");            break;
+	    case S_IFCHR:  dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"character device\n");        break;
+	    case S_IFDIR:  dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"directory\n");				  break;
+	    case S_IFIFO:  dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"FIFO/pipe\n");               break;
+	    case S_IFLNK:  dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"symlink\n");                 break;
+	    case S_IFREG:  dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"regular file\n");            break;
+	    case S_IFSOCK: dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"socket\n");                  break;
+	    default:       dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"unknown?\n");                break;
 	    }
 #endif
 	 if (returnVal != -1) returnVal=1000*d+100*r+10*w+e;
 #ifdef DEBUG
-	dfprintf(fp9,"GetFileAttributes set to %i for %s\n",returnVal,lpFileName);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetFileAttributes set to %i for %s\n",returnVal,lpFileName);
 #endif
 	return (returnVal);
 }
@@ -1100,7 +1126,7 @@ WINSHELLAPI HRESULT WINAPI SHGetSpecialFolderLocation(HWND hwndOwner, int nFolde
 
 	if ( nFolder != CSIDL_APPDATA ) {
 #ifdef DEBUG
-		dfprintf(fp9,"SHGetSpecialFolderLocation = \33[1;32mNULL\33[0m, CSIDL\n",nFolder);
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SHGetSpecialFolderLocation = \33[1;32mNULL\33[0m, CSIDL\n",nFolder);
 #endif
 		printf("bad call to SHGetSpecialFolderLocation... CSIDL reqested is not CSIDL_APPDATA\n");
 		return 1;
@@ -1109,7 +1135,7 @@ WINSHELLAPI HRESULT WINAPI SHGetSpecialFolderLocation(HWND hwndOwner, int nFolde
 	uid = getuid();
 	if ( (pw = getpwuid(uid)) == NULL ) {
 #ifdef DEBUG
-		dfprintf(fp9,"getpwuid failed in SHGetSpecialFolderLocation for uid = %u... errno = %i\n",uid,errno);
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"getpwuid failed in SHGetSpecialFolderLocation for uid = %u... errno = %i\n",uid,errno);
 #endif
 		printf("getpwuid failed in SHGetSpecialFolderLocation...errno = %i\n",errno);
 		return 2;
@@ -1118,17 +1144,17 @@ WINSHELLAPI HRESULT WINAPI SHGetSpecialFolderLocation(HWND hwndOwner, int nFolde
 	iSizeHomedir = strlen(pw->pw_dir);
 	if ( iSizeHomedir < 1 ) {
 #ifdef DEBUG
-		dfprintf(fp9,"bad size of pw->pw_dir in SHGetSpecialFolderLocation, size = %u\n",iSizeHomedir );
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"bad size of pw->pw_dir in SHGetSpecialFolderLocation, size = %u\n",iSizeHomedir );
 #endif
 		printf("bad size of pw->pw_dir in SHGetSpecialFolderLocation...\n");
 		return 3;
 	}
 #ifdef DEBUG
-	dfprintf(fp9,"size of pw->pw_dir for uid %u in SHGetSpecialFolderLocation is %u, pw->pw_dir = \"%s\"\n",uid,iSizeHomedir,pw->pw_dir);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"size of pw->pw_dir for uid %u in SHGetSpecialFolderLocation is %u, pw->pw_dir = \"%s\"\n",uid,iSizeHomedir,pw->pw_dir);
 #endif
 	if ( ( homedir = (char *)malloc( iSizeHomedir + 1 ) ) == NULL ) {
 #ifdef DEBUG
-		dfprintf(fp9,"malloc failed in SHGetSpecialFolderLocation, size = %u\n",iSizeHomedir+1 );
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"malloc failed in SHGetSpecialFolderLocation, size = %u\n",iSizeHomedir+1 );
 #endif
 		printf("malloc failed in SHGetSpecialFolderLocation...\n");
 		return 4;
@@ -1149,18 +1175,18 @@ WINSHELLAPI BOOL WINAPI SHGetPathFromIDList(LPCITEMIDLIST pidl, LPSTR pszPath)
 	}
 #ifdef DEBUG
 	else {
-		dfprintf(fp9,"SHGetPathFromIDList says $HOME environment variable = \"%s\"\n",getenv("HOME"));
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SHGetPathFromIDList says $HOME environment variable = \"%s\"\n",getenv("HOME"));
 	}
 #endif
 	if ( (strlen(homedir)+1) > _MAX_PATH ) {
 #ifdef DEBUG
-	dfprintf(fp9,"SHGetPathFromIDList = \33[1;32mNULL\33[0m, length of homedir > _MAX_PATH(%i), homedir = \"%s\"\n",_MAX_PATH,homedir);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SHGetPathFromIDList = \33[1;32mNULL\33[0m, length of homedir > _MAX_PATH(%i), homedir = \"%s\"\n",_MAX_PATH,homedir);
 #endif
 		return (FALSE);
 	}
 	strcpy(pszPath,(const char *)homedir);
 #ifdef DEBUG
-	dfprintf(fp9,"SHGetPathFromIDList says homedir = \"%s\"\n",homedir);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SHGetPathFromIDList says homedir = \"%s\"\n",homedir);
 #endif
 
 	return (TRUE);
@@ -1173,7 +1199,7 @@ BOOL WINAPI CreateDirectory(
 {
 	if ( lpSecurityAttributes != NULL ) {
 #ifdef DEBUG
-		dfprintf(fp9,"CreateDirectory = \33[1;32mNULL\33[0m ... called with non-NULL security attributes\n");
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CreateDirectory = \33[1;32mNULL\33[0m ... called with non-NULL security attributes\n");
 #endif
 		printf("CreateDirectory failed due to call with non-NULL Security Attributes (not supported by this version)\n This is a programming error...\n");
 		return (FALSE);
@@ -1187,7 +1213,7 @@ BOOL WINAPI CreateDirectory(
 //	}
 	if ( result != 0 ) {
 #ifdef DEBUG
-		dfprintf(fp9,"CreateDirectory for \"%s\" failed with errno = %u\n",lpPathName,errno);
+		dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CreateDirectory for \"%s\" failed with errno = %u\n",lpPathName,errno);
 #endif
 		return (FALSE);
 	}
@@ -1203,7 +1229,7 @@ int DialogBoxParam(
     LPARAM dwInitParam)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"DialogBoxParam = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"DialogBoxParam = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -1223,7 +1249,7 @@ HWND WINAPI CreateWindow(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"CreateWindow = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CreateWindow = \33[1;32mNULL\33[0m\n");
 #endif
 	return (JKNULL);
 }
@@ -1233,7 +1259,7 @@ ATOM WINAPI RegisterClassEx(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"RegisterClassEx = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"RegisterClassEx = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -1246,7 +1272,7 @@ LRESULT WINAPI DefWindowProc(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"DefWindowProc = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"DefWindowProc = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -1261,7 +1287,7 @@ HtmlHelp(
     )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"HtmlHelp = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"HtmlHelp = \33[1;32mNULL\33[0m\n");
 #endif
 	return (JKNULL);
 }
@@ -1276,7 +1302,7 @@ size_t wcstombs(
 )
 {
 #ifdef DEBUGWCSTOMBS
-	dfprintf(fp9,"wcstombs = %s\n",wcstr);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"wcstombs = %s\n",wcstr);
 #endif
 	return ( strlen( strncpy(mbstr, wcstr, count) ) );
 }
@@ -1315,9 +1341,7 @@ BOOL WINAPI FileTimeToSystemTime(
 	  WORD wMilliseconds;
 	} SYSTEMTIME, *PSYSTEMTIME; */
 #ifdef DEBUG
-	if (debugflag & DEBUGSETTINGSINPUT) {
-		dfprintf(fp9,"FileTimeToSystemTime = %s",asctime(tminfo));
-	}
+	dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"FileTimeToSystemTime = %s",asctime(tminfo));
 #endif
 	lpSystemTime->wYear = tminfo->tm_year + 1900;
 	lpSystemTime->wMonth = tminfo->tm_mon + 1;
@@ -1368,9 +1392,7 @@ BOOL WINAPI SystemTimeToTzSpecificLocalTime(
 
 
 #ifdef DEBUG
-	if (debugflag & DEBUGSETTINGSINPUT) {
-		dfprintf(fp9,"SystemTimeToTzSpecificLocalTime = %s",asctime(tmlocal));
-	}
+	dfprintf(__LINE__,__FILE__,DEBUGSETTINGSINPUT,"SystemTimeToTzSpecificLocalTime = %s",asctime(tmlocal));
 #endif
 	return (FALSE);
 }
@@ -1386,7 +1408,7 @@ BOOL WINAPI MoveFile(
 		return(FALSE);
 	}
 #ifdef DEBUG
-	dfprintf(fp9,"MoveFile \33[1;32mcalled\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"MoveFile \33[1;32mcalled\33[0m\n");
 #endif
 	return (TRUE);
 }
@@ -1401,7 +1423,7 @@ BOOL WINAPI QueryPerformanceCounter(
 //       that QueryPerformanceCounter returns. This is done to minimize the possibility of exhausting the entropy
 //       in the random number source on linux. Take care not to expect the entire LARGE_INTEGER to be random.
 #ifdef DEBUG
-	dfprintf(fp9,"calling QueryPerformanceCounter\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"calling QueryPerformanceCounter\n");
 #endif
 	BOOL bUsingDevRandon = TRUE;
 	int randomData = open("/dev/random", O_RDONLY | O_NONBLOCK);
@@ -1410,14 +1432,14 @@ BOOL WINAPI QueryPerformanceCounter(
 		return (FALSE);
 	}
 #ifdef DEBUG
-	dfprintf(fp9,"open return = %i\n",randomData);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"open return = %i\n",randomData);
 #endif
 	size_t randomDataLen = 0;
 	while (randomDataLen < sizeof (lpPerformanceCount->LowPart) )
 	{
 #ifdef DEBUG
-		if (bUsingDevRandon) dfprintf(fp9,"reading /dev/random\n");
-		if (!bUsingDevRandon) dfprintf(fp9,"reading /dev/urandom\n");
+		if (bUsingDevRandon) dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"reading /dev/random\n");
+		if (!bUsingDevRandon) dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"reading /dev/urandom\n");
 #endif
 	    ssize_t result = read(randomData, &(lpPerformanceCount->LowPart), sizeof (lpPerformanceCount->LowPart) );
 	    if (result < (ssize_t)sizeof (lpPerformanceCount->LowPart))
@@ -1431,7 +1453,7 @@ BOOL WINAPI QueryPerformanceCounter(
 				syslog(LOG_INFO, "Warning: low entropy detected on /dev/random");
 				closelog();
 #ifdef DEBUG
-				dfprintf(fp9,"QueryPerformanceCounter = %llx, size of result is %i, switching to /dev/urandom\n", lpPerformanceCount->LowPart,result );
+				dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"QueryPerformanceCounter = %llx, size of result is %i, switching to /dev/urandom\n", lpPerformanceCount->LowPart,result );
 #endif
 				close(randomData);
 				result = 0;
@@ -1442,7 +1464,7 @@ BOOL WINAPI QueryPerformanceCounter(
 					return (FALSE);
 				}
 #ifdef DEBUG
-				dfprintf(fp9,"open return = %i\n",randomData);
+				dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"open return = %i\n",randomData);
 #endif
 	    	}
 	    }
@@ -1451,7 +1473,7 @@ BOOL WINAPI QueryPerformanceCounter(
 	close(randomData);
 
 #ifdef DEBUG
-	dfprintf(fp9,"QueryPerformanceCounter = %llx, size of result is %i\n", lpPerformanceCount->LowPart,randomDataLen );
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"QueryPerformanceCounter = %llx, size of result is %i\n", lpPerformanceCount->LowPart,randomDataLen );
 #endif
 	return (TRUE);
 }
@@ -1462,7 +1484,7 @@ BOOL WINAPI EndDialog(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"EndDialog = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"EndDialog = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -1473,7 +1495,7 @@ HWND WINAPI GetWindow(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetWindow = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetWindow = \33[1;32mNULL\33[0m\n");
 #endif
 	return (JKNULL);
 }
@@ -1483,7 +1505,7 @@ BOOL WINAPI ShowWindow(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"ShowWindow = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"ShowWindow = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -1493,7 +1515,7 @@ HWND WINAPI GetParent(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetParent = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetParent = \33[1;32mNULL\33[0m\n");
 #endif
 	return (JKNULL);
 }
@@ -1501,7 +1523,7 @@ HWND WINAPI GetParent(
 HWND WINAPI GetDesktopWindow(void)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetDesktopWindow = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetDesktopWindow = \33[1;32mNULL\33[0m\n");
 #endif
 	return (JKNULL);
 }
@@ -1512,7 +1534,7 @@ BOOL WINAPI GetWindowRect(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetWindowRect = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetWindowRect = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -1528,7 +1550,7 @@ BOOL WINAPI SetWindowPos(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetWindowPos = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetWindowPos = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -1539,7 +1561,7 @@ BOOL WINAPI SetWindowText(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetWindowText = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetWindowText = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -1550,7 +1572,7 @@ HWND WINAPI GetDlgItem(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetDlgItem = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetDlgItem = \33[1;32mNULL\33[0m\n");
 #endif
 	return (JKNULL);
 }
@@ -1560,7 +1582,7 @@ int WINAPI GetWindowTextLength(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetWindowTextLength = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetWindowTextLength = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -1572,7 +1594,7 @@ int WINAPI GetWindowText(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetWindowText = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetWindowText = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -1583,11 +1605,11 @@ BOOL WINAPI GetOpenFileName(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetOpenFileName = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetOpenFileName = \33[1;32mNULL\33[0m\n");
 #endif
 
 #ifdef DEBUG
-	dfprintf(fp9," in GetOpenFileName lStructSize = %u\n lpstrFilter = %s\n lpstrFile = %s\n nMaxFile = %u\n lpstrInitialDir = %s\n"
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME," in GetOpenFileName lStructSize = %u\n lpstrFilter = %s\n lpstrFile = %s\n nMaxFile = %u\n lpstrInitialDir = %s\n"
 			     " lpstrFileTitle = %s\n nMaxFileTitle = %u\n lpstrTitle = %s\n lpstrDefExt = %s\n Flags = %x\n OFN_CREATEPROMPT is %s\n"
 		         " OFN_HIDEREADONLY is %s\n OFN_NOCHANGEDIR is %s\n OFN_NOREADONLYRETURN is %s\n OFN_OVERWRITEPROMPT is %s\n OFN_FILEMUSTEXIST is %s\n",
 			     SZNULL(lpofn->lStructSize), SZNULL(lpofn->lpstrFilter), SZNULL(lpofn->lpstrFile), lpofn->nMaxFile, SZNULL(lpofn->lpstrInitialDir), SZNULL(lpofn->lpstrFileTitle),
@@ -1691,17 +1713,17 @@ BOOL WINAPI GetOpenFileNameTX( LPOPENFILENAME lpofn){
 					int rval = access(A, F_OK);
 					if (rval == 0) {
 #ifdef DEBUGGETFILEATTRIBUTES
-						dfprintf(fp9, "%s exists\n", A);
+						dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME, "%s exists\n", A);
 #endif
 					} else {
 						if (errno == ENOENT) {
 #ifdef DEBUG
-							dfprintf(fp9, "%s does not exist\n", A);
+							dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME, "%s does not exist\n", A);
 #endif
 						}
 						if (errno == EACCES) {
 #ifdef DEBUG
-							dfprintf(fp9, "%s is not accessible\n", A);
+							dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME, "%s is not accessible\n", A);
 #endif
 						}
 						MsgBox(
@@ -1943,7 +1965,7 @@ BOOL WINAPI GetSaveFileName(
 
 
 #ifdef DEBUG
-	dfprintf(fp9,"GetSaveFileName = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetSaveFileName = \33[1;32mNULL\33[0m\n");
 #endif
 	lStructSize = lpofn->lStructSize;
 //    lpofn.hwndOwner	  = hDlg;
@@ -1961,7 +1983,7 @@ BOOL WINAPI GetSaveFileName(
 //	if (clear text) lpofn.lpstrDefExt       = "txt";
 	Flags = lpofn->Flags;
 #ifdef DEBUG
-	dfprintf(fp9," in GetSaveFileName lStructSize = %u\n lpstrFilter = %s\n lpstrFile = %s\n nMaxFile = %u\n lpstrInitialDir = %s\n"
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME," in GetSaveFileName lStructSize = %u\n lpstrFilter = %s\n lpstrFile = %s\n nMaxFile = %u\n lpstrInitialDir = %s\n"
 			     " lpstrFileTitle = %s\n nMaxFileTitle = %u\n lpstrTitle = %s\n lpstrDefExt = %s\n Flags = %x\n OFN_CREATEPROMPT is %s\n"
 		         " OFN_HIDEREADONLY is %s\n OFN_NOCHANGEDIR is %s\n OFN_NOREADONLYRETURN is %s\n OFN_OVERWRITEPROMPT is %s\n OFN_FILEMUSTEXIST is %s\n",
 			     SZNULL(lStructSize), SZNULL(lpstrFilter), SZNULL(lpstrFile), nMaxFile, SZNULL(lpstrInitialDir), SZNULL(lpstrFileTitle),
@@ -2094,7 +2116,7 @@ UINT WINAPI GetDlgItemText(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetDlgItemText = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetDlgItemText = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -2108,7 +2130,7 @@ HBRUSH CreateSolidBrush(
 	g = (crColor>>8) & 0xff;
 	b = (crColor>>16) & 0xff;
 #ifdef DEBUG
-	dfprintf(fp9,"CreateSolidBrush = NULL (r=%u,g=%u,b=%u)\n",r,g,b);
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CreateSolidBrush = NULL (r=%u,g=%u,b=%u)\n",r,g,b);
 #endif
 	return (JKNULL);
 }
@@ -2121,7 +2143,7 @@ BOOL WinHelp(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"WinHelp = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"WinHelp = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2134,7 +2156,7 @@ LRESULT WINAPI SendMessage(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SendMessage = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SendMessage = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -2147,7 +2169,7 @@ UINT_PTR WINAPI SetTimer(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetTimer = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetTimer = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -2158,7 +2180,7 @@ BOOL WINAPI KillTimer(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"KillTimer = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"KillTimer = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2170,7 +2192,7 @@ BOOL WINAPI GetClientRect(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetClientRect = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetClientRect = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2183,7 +2205,7 @@ int MapWindowPoints(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"MapWindowPoints = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"MapWindowPoints = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -2204,7 +2226,7 @@ HWND WINAPI CreateWindowEx(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"CreateWindowEx = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CreateWindowEx = \33[1;32mNULL\33[0m\n");
 #endif
 	return (JKNULL);
 }
@@ -2214,7 +2236,7 @@ HGDIOBJ GetStockObject(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetStockObject = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetStockObject = \33[1;32mNULL\33[0m\n");
 #endif
 	return (JKNULL);
 }
@@ -2225,7 +2247,7 @@ UINT IsDlgButtonChecked(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"IsDlgButtonChecked = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"IsDlgButtonChecked = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -2238,7 +2260,7 @@ BOOL RedrawWindow(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"RedrawWindow = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"RedrawWindow = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2249,7 +2271,7 @@ HGLOBAL GlobalAlloc(
     )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GlobalAlloc = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GlobalAlloc = \33[1;32mNULL\33[0m\n");
 #endif
 	return (JKNULL);
 }
@@ -2259,7 +2281,7 @@ LPVOID GlobalLock(
     )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GlobalLock = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GlobalLock = \33[1;32mNULL\33[0m\n");
 #endif
 	return (NULL);
 }
@@ -2269,7 +2291,7 @@ BOOL GlobalUnlock(
     )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GlobalUnlock = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GlobalUnlock = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2279,7 +2301,7 @@ BOOL OpenClipboard(
 	)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"OpenClipboard = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"OpenClipboard = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2288,7 +2310,7 @@ BOOL EmptyClipboard(
 	)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"EmptyClipboard = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"EmptyClipboard = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2299,7 +2321,7 @@ HANDLE SetClipboardData(
 	)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetClipboardData = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetClipboardData = \33[1;32mNULL\33[0m\n");
 #endif
 	return (JKNULL);
 }
@@ -2308,7 +2330,7 @@ BOOL CloseClipboard(
 	)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"CloseClipboard = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CloseClipboard = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2320,7 +2342,7 @@ BOOL CheckDlgButton(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"CheckDlgButton = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CheckDlgButton = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2332,7 +2354,7 @@ BOOL WINAPI SetDlgItemText(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetDlgItemText = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetDlgItemText = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2343,7 +2365,7 @@ BOOL ScreenToClient(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"ScreenToClient = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"ScreenToClient = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2354,7 +2376,7 @@ BOOL ClientToScreen(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"ClientToScreen = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"ClientToScreen = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2369,7 +2391,7 @@ BOOL WINAPI MoveWindow(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"MoveWindow = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"MoveWindow = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2382,7 +2404,7 @@ UINT WINAPI GetDlgItemInt(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"GetDlgItemInt = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"GetDlgItemInt = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -2395,7 +2417,7 @@ BOOL WINAPI SetDlgItemInt(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetDlgItemInt = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetDlgItemInt = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -2405,7 +2427,7 @@ HWND WINAPI SetFocus(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetFocus = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetFocus = \33[1;32mNULL\33[0m\n");
 #endif
 	return (JKNULL);
 }
@@ -2417,7 +2439,7 @@ BOOL WINAPI EnableWindow(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"EnableWindow = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"EnableWindow = \33[1;32mNULL\33[0m\n");
 #endif
 	return (FALSE);
 }
@@ -2468,7 +2490,7 @@ char *  itoa ( int value, char * str, int base )
 int WINAPI SetBkMode(HDC,int)
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SetBkMode = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SetBkMode = \33[1;32mNULL\33[0m\n");
 #endif
 	return (0);
 }
@@ -2480,7 +2502,7 @@ BOOL ComboBox_ShowDropdown(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"ComboBox_ShowDropdown = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"ComboBox_ShowDropdown = \33[1;32mNULL\33[0m\n");
 #endif
 	return (TRUE);
 }
@@ -2494,7 +2516,7 @@ LRESULT WINAPI SendDlgItemMessage(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"SendDlgItemMessage = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"SendDlgItemMessage = \33[1;32mNULL\33[0m\n");
 #endif
 	return (TRUE);
 }
@@ -2506,7 +2528,7 @@ BOOL InvalidateRect(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"InvalidateRect = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"InvalidateRect = \33[1;32mNULL\33[0m\n");
 #endif
 	return (TRUE);
 }
@@ -2517,7 +2539,7 @@ BOOL UpdateWindow(
 )
 {
 #ifdef DEBUG
-	dfprintf(fp9,"UpdateWindow = \33[1;32mNULL\33[0m\n");
+	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"UpdateWindow = \33[1;32mNULL\33[0m\n");
 #endif
 	return (TRUE);
 }
