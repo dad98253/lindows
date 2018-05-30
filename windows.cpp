@@ -1688,7 +1688,7 @@ BOOL WINAPI GetOpenFileNameTX( LPOPENFILENAME lpofn){
 	char A[MYDIRDIMSIZE];
 
 #ifdef DEBUG
-	dfprintf (fp9,"in GetOpenFileNameTX at line %i\n",__LINE__);
+	dfprintf(__LINE__,__FILE__,TRACE,"in GetOpenFileNameTX at line %i\n",__LINE__);
 #endif
 
 	*A = '\000';
@@ -1708,7 +1708,7 @@ BOOL WINAPI GetOpenFileNameTX( LPOPENFILENAME lpofn){
 // fetch the input
 		iAnswer = (int)tutFetchData(1);
 #ifdef DEBUG
-		dfprintf (fp9,"tutFetchData at line %i in GetOpenFileNameTX returned iAnswer = %i\n",__LINE__,iAnswer);
+		dfprintf(__LINE__,__FILE__,TRACE,"tutFetchData at line %i in GetOpenFileNameTX returned iAnswer = %i\n",__LINE__,iAnswer);
 #endif
 		//   SAVE FILENAME MENU
    	    // 1) Change the folder that the file is located in
@@ -1728,7 +1728,7 @@ BOOL WINAPI GetOpenFileNameTX( LPOPENFILENAME lpofn){
 				if (strlen(A) == 0) continue;
 				if ( chdir(A) == -1 ) {
 #ifdef DEBUG
-					dfprintf (fp9,"The directory change failed at line %i in GetOpenFileNameTX and returned errno = %i\n",__LINE__,errno);
+					dfprintf(__LINE__,__FILE__,TRACE,"The directory change failed at line %i in GetOpenFileNameTX and returned errno = %i\n",__LINE__,errno);
 #endif
 					MsgBox("  The directory change failed.\n");
 				}
@@ -2062,7 +2062,7 @@ BOOL WINAPI GetSaveFileNameTX( LPOPENFILENAME lpofn){
 	char A[MYDIRDIMSIZE];
 
 #ifdef DEBUG
-	dfprintf (fp9,"in GetSaveFileNameTX at line %i\n",__LINE__);
+	dfprintf(__LINE__,__FILE__,TRACE,"in GetSaveFileNameTX at line %i\n",__LINE__);
 #endif
 
 	*A = '\000';
@@ -2082,7 +2082,7 @@ BOOL WINAPI GetSaveFileNameTX( LPOPENFILENAME lpofn){
 // fetch the input
 		iAnswer = (int)tutFetchData(1);
 #ifdef DEBUG
-		dfprintf (fp9,"tutFetchData at line %i in GetSaveFileNameTX returned iAnswer = %i\n",__LINE__,iAnswer);
+		dfprintf(__LINE__,__FILE__,TRACE,"tutFetchData at line %i in GetSaveFileNameTX returned iAnswer = %i\n",__LINE__,iAnswer);
 #endif
 		//   SAVE FILENAME MENU
    	    // 1) Change the folder that the file will be saved in
@@ -2102,7 +2102,7 @@ BOOL WINAPI GetSaveFileNameTX( LPOPENFILENAME lpofn){
 				if (strlen(A) == 0) continue;
 				if ( chdir(A) == -1 ) {
 #ifdef DEBUG
-					dfprintf (fp9,"The directory change failed at line %i in GetSaveFileNameTX and returned errno = %i\n",__LINE__,errno);
+					dfprintf(__LINE__,__FILE__,TRACE,"The directory change failed at line %i in GetSaveFileNameTX and returned errno = %i\n",__LINE__,errno);
 #endif
 					MsgBox("  The directory change failed.\n");
 				}
