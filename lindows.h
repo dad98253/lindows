@@ -18,6 +18,19 @@
     #define true  ((bool)1)
 #endif
 
+#ifdef WINDOZE
+#define JKNULL	NULL
+#else	// WINDOZE
+#ifndef JKNULL
+#ifdef __cplusplus
+#define JKNULL    0
+#else	//  __cplusplus
+#define JKNULL    ((void *)0)
+#endif	//  __cplusplus
+#endif	// JKNULL
+#endif	// WINDOZE
+
+
 typedef LONG HRESULT;
 typedef void	VOID, *PVOID;
 typedef long long	__int64;
