@@ -31,7 +31,13 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <time.h>
+#ifndef BSD
 #include <sys/sendfile.h>
+#else
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/uio.h>
+#endif
 #include <fcntl.h>
 #include <syslog.h>
 #include <pwd.h>
@@ -711,7 +717,12 @@ DWORD WINAPI FormatMessage(
 #endif
 	return (0);
 }
+#ifndef BSD
 #include <malloc.h>
+#else
+#include <stdlib.h>
+#include <malloc_np.h>
+#endif
 size_t _msize(
 void *memblock
 )
@@ -1010,7 +1021,55 @@ BOOL WINAPI CopyFile(
 #ifdef DEBUG
 	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"copying %s to %s :",lpExistingFileName,lpNewFileName);
 #endif
+#ifndef BSD
 	while ( sendfile(fpout, fpin, 0, 32768) == 32768 ) {
+#else	// BSD
+// oops... wait a minute! in BSD, the output handle for sendfile is still
+// required to be a socket (linux extened this to include file)
+// so, for freebsd based systems, we drop back to read/write to play it safe...
+    char *buf = (char *)malloc(32768);
+	assert(buf != NULL);
+	if ( buf != NULL ) {
+		printf("malloc unable to open buffer in CopyFile when copying %s\n",lpExistingFileName);
+		return (FALSE);
+	}
+	ssize_t w = 0, r = 0, t, n, m;
+//	t = filesize(in);
+    int pos;
+    FILE * shin = NULL;
+    shin = fdopen(fpin,	"r");
+    if ( shin == NULL ) {
+    	printf("fdopen failed in CopyFile when copying %s, errno = %i\n",lpExistingFileName,errno);
+    	return (FALSE);
+    }
+    pos = ftell (shin);
+    fseek (shin, 0, SEEK_END);
+    t   = ftell (shin);
+    fseek (shin, pos, SEEK_SET);
+
+	while(r < t && (n = read(fpin, buf, 32768))) {
+		if(n == -1) {
+			assert(errno == EINTR);
+			if ( errno == EINTR ) {
+				printf("read failed in in CopyFile when copying %s, errno = %i\n",lpExistingFileName,errno);
+				return (FALSE);
+			}
+			continue;
+		}
+		r = n;
+		w = 0;
+		while(w < r && (m = write(fpout, buf + w, (r - w)))) {
+            if(m == -1) {
+            	assert(errno == EINTR);
+            	if (errno == EINTR) {
+            		printf("write failed in in CopyFile when copying %s, errno = %i\n",lpExistingFileName,errno);
+            		return (FALSE);
+            	}
+            	continue;
+            }
+            w += m;
+        }
+#endif	// BSD
 #ifdef DEBUG
 	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"*");
 #endif
@@ -1020,6 +1079,9 @@ BOOL WINAPI CopyFile(
 #endif
 	close(fpin);
 	close(fpout);
+#ifdef BSD
+    free(buf);
+#endif	// BSD
 #ifdef DEBUG
 	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"CopyFile done\n");
 #endif

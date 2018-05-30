@@ -19,7 +19,9 @@
 
 // C RunTime Header Files
 #include <stdlib.h>
+#ifndef BSD
 #include <malloc.h>
+#endif
 #include <memory.h>
 
 #ifdef WINDOZE
