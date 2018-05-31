@@ -58,9 +58,9 @@
 #include "ecbm2.h"
 #endif
 
-#define TRACESTATUS		1
-#define TRACEGETFULLPATHNAME	TRACESTATUS
-#define DEBUGSETTINGSINPUT		TRACESTATUS
+//#define TRACESTATUS		1
+//#define TRACEGETFULLPATHNAME	TRACESTATUS
+//#define DEBUGSETTINGSINPUT		TRACESTATUS
 
 
 #define MIN(x, y) (((x) > (y)) ? (y) : (x))
@@ -727,8 +727,8 @@ size_t _msize(
 void *memblock
 )
 {
-#ifdef DEBUGMSIZE
-	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"msize = %lu\n", malloc_usable_size (memblock));
+#ifdef DEBUG
+//	dfprintf(__LINE__,__FILE__,TRACEGETFULLPATHNAME,"msize = %lu\n", malloc_usable_size (memblock));
 #endif
 	return (malloc_usable_size (memblock));
 }
