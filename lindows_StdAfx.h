@@ -40,7 +40,11 @@
 
 #define Stringize( L ) #L
 #define MakeString( M, L ) M(L)
+#ifndef TURK
 #define $Line MakeString( Stringize, __LINE__ )
+#else	// TURK  ... the above will not work using the older ARM compiler
+#define Line MakeString(Stringize,__LINE__)
+#endif	// TURK
 #define Reminder __FILE__ "(" $Line ") : Reminder: "
 #ifdef DEBUG
 #ifndef __MYFILE__
